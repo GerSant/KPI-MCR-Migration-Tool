@@ -228,6 +228,49 @@ def extract_auto_renew(mcr_detail_data: dict, mcr_list_data: dict) -> str:
         return "Yes" if is_true else "No"
     return "No"
 
+def detect_ipsec_status(data_sources: list) -> str:
+    found_tier = None
+    is_active = False
+
+    def _scan(node):
+        nonlocal found_tier, is_active
+        if isinstance(node, dict):
+            for k, v in node.items():
+                k_lower = str(k).lower()
+                if "ipsec" in k_lower:
+                    is_active = True
+                    if isinstance(v, (int, str)) and str(v).strip() in ("10", "20", "30"):
+                        found_tier = str(v).strip()
+                    elif isinstance(v, dict):
+                        for sub_k, sub_v in v.items():
+                            if str(sub_k).lower() in ("tier", "tunnels", "count", "level") and sub_v:
+                                found_tier = str(sub_v).strip()
+                            if str(sub_k).lower() in ("enabled", "active", "status") and sub_v in (True, "true", "active", "ENABLED"):
+                                is_active = True
+                    elif isinstance(v, bool) and v:
+                        is_active = True
+                if ("tier" in k_lower or "tunnel" in k_lower) and isinstance(v, (int, str)):
+                    digits = "".join(filter(str.isdigit, str(v)))
+                    if digits in ("10", "20", "30"):
+                        found_tier = digits
+                _scan(v)
+        elif isinstance(node, list):
+            for item in node:
+                if isinstance(item, dict) and "ipsec" in str(item).lower():
+                    is_active = True
+                    for sub_k, sub_v in item.items():
+                        if str(sub_k).lower() in ("tier", "tunnels", "count") and sub_v:
+                            found_tier = str(sub_v).strip()
+                _scan(item)
+
+    _scan(data_sources)
+
+    if found_tier:
+        digits = "".join(filter(str.isdigit, str(found_tier)))
+        if digits in ("10", "20", "30"):
+            found_tier = digits
+
+    return f"Yes: {found_tier} Tunnels" if found_tier else "Yes" if is_active else "No"
 
 def fetch_mcr_tags(base_url: str, mcr_uid: str, token: str):
     root_url = get_root_base_url(base_url)
@@ -309,52 +352,6 @@ def fetch_resource_tags_list(base_url: str, mcr_uid: str, data_sources: list, to
         _scan_payload(data_sources)
 
     return formatted_entries
-
-
-def detect_ipsec_status(data_sources: list) -> str:
-    found_tier = None
-    is_active = False
-
-    def _scan(node):
-        nonlocal found_tier, is_active
-        if isinstance(node, dict):
-            for k, v in node.items():
-                k_lower = str(k).lower()
-                if "ipsec" in k_lower:
-                    is_active = True
-                    if isinstance(v, (int, str)) and str(v).strip() in ("10", "20", "30"):
-                        found_tier = str(v).strip()
-                    elif isinstance(v, dict):
-                        for sub_k, sub_v in v.items():
-                            if str(sub_k).lower() in ("tier", "tunnels", "count", "level") and sub_v:
-                                found_tier = str(sub_v).strip()
-                            if str(sub_k).lower() in ("enabled", "active", "status") and sub_v in (True, "true", "active", "ENABLED"):
-                                is_active = True
-                    elif isinstance(v, bool) and v:
-                        is_active = True
-                if ("tier" in k_lower or "tunnel" in k_lower) and isinstance(v, (int, str)):
-                    digits = "".join(filter(str.isdigit, str(v)))
-                    if digits in ("10", "20", "30"):
-                        found_tier = digits
-                _scan(v)
-        elif isinstance(node, list):
-            for item in node:
-                if isinstance(item, dict) and "ipsec" in str(item).lower():
-                    is_active = True
-                    for sub_k, sub_v in item.items():
-                        if str(sub_k).lower() in ("tier", "tunnels", "count") and sub_v:
-                            found_tier = str(sub_v).strip()
-                _scan(item)
-
-    _scan(data_sources)
-
-    if found_tier:
-        digits = "".join(filter(str.isdigit, str(found_tier)))
-        if digits in ("10", "20", "30"):
-            found_tier = digits
-
-    return f"Yes: {found_tier} Tunnels" if found_tier else "Yes" if is_active else "No"
-
 
 def fetch_flow_exports(base_url: str, mcr_uid: str, data_sources: list, token: str) -> list:
     """Queries GET /v2/product/mcr2/{productUid}/flowExports and individual details."""
